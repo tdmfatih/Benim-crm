@@ -1,0 +1,56 @@
+version: '3.8'
+
+services:
+  # 3AS PostgreSQL 16 Production Relational Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: 3as_postgres
+    restart: always
+    environment:
+      POSTGRES_DB: as3_crm_erp
+      POSTGRES_USER: as3_admin
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-3ASTeknoloji_Secure2026_PostgrePass}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./server/db/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql
+    ports:
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U as3_admin -d as3_crm_erp"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # 3AS CRM/ERP Application Service (Frontend + Backend)
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: 3as_panel_app
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgresql://as3_admin:${DB_PASSWORD:-3ASTeknoloji_Secure2026_PostgrePass}@postgres:5432/as3_crm_erp
+      JWT_SECRET: ${JWT_SECRET:-3as_prod_jwt_secret_key_super_secure_2026_panel}
+      APP_URL: https://panel.3asteknoloji.com
+      WHATSAPP_API_TOKEN: ${WHATSAPP_API_TOKEN:-}
+      WHATSAPP_PHONE_NUMBER_ID: ${WHATSAPP_PHONE_NUMBER_ID:-}
+      WHATSAPP_VERIFY_TOKEN: ${WHATSAPP_VERIFY_TOKEN:-3as_webhook_verify_token_2026}
+      EINVOICE_PROVIDER: ${EINVOICE_PROVIDER:-generic}
+      EINVOICE_API_KEY: ${EINVOICE_API_KEY:-}
+      EINVOICE_API_SECRET: ${EINVOICE_API_SECRET:-}
+      EINVOICE_ENVIRONMENT: ${EINVOICE_ENVIRONMENT:-test}
+    volumes:
+      - app_uploads:/app/uploads
+    ports:
+      - "127.0.0.1:3000:3000"
+
+volumes:
+  postgres_data:
+    driver: local
+  app_uploads:
+    driver: local

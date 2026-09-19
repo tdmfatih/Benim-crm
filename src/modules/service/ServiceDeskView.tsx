@@ -4,6 +4,7 @@ import { storage } from '../../services/storageService';
 import { PDFService } from '../../services/pdfService';
 import { WhatsAppService } from '../../services/whatsappService';
 import { AutomationEngine } from '../../services/automationEngine';
+import { WhatsAppSendModal } from '../../components/common/WhatsAppSendModal';
 import { 
   Plus, Search, Cpu, Wrench, Printer, MessageSquare, 
   ExternalLink, Copy, CheckCircle2, Clock, AlertTriangle, 
@@ -43,6 +44,13 @@ export const ServiceDeskView: React.FC<ServiceDeskViewProps> = ({
   const [photoStage, setPhotoStage] = useState<'intake' | 'repair' | 'delivered'>('intake');
   const [photoCaption, setPhotoCaption] = useState('');
   const [previewPhoto, setPreviewPhoto] = useState<{ url: string; caption?: string; stage?: string } | null>(null);
+  const [whatsAppModalData, setWhatsAppModalData] = useState<{
+    isOpen: boolean;
+    ticket: ServiceTicket;
+    title: string;
+    message: string;
+    onSentAction?: () => void;
+  } | null>(null);
 
   const formatMoney = (val: number) => 
     new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(val);
@@ -79,54 +87,51 @@ export const ServiceDeskView: React.FC<ServiceDeskViewProps> = ({
   };
 
   // WhatsApp Mesaj Gönderimleri (3 Farklı Senaryo)
-  const handleSendWhatsAppNotification = async (ticket: ServiceTicket, type: 'intake' | 'diagnosis' | 'ready') => {
+  const handleSendWhatsAppNotification = (ticket: ServiceTicket, type: 'intake' | 'diagnosis' | 'ready') => {
     const approvalUrl = `${window.location.origin}/service-approval/${ticket.approvalToken}`;
+    let title = '';
+    let message = '';
+    let onSentAction: (() => void) | undefined = undefined;
 
     if (type === 'intake') {
-      await WhatsAppService.sendMessage({
-        recipientName: ticket.customerName,
-        recipientPhone: ticket.customerPhone,
-        templateCode: 'SERVICE_INTAKE_CONFIRMATION',
-        variables: {
-          musteri_adi: ticket.customerName,
-          servis_no: ticket.ticketNumber,
-          cihaz_tanimi: `${ticket.brand} ${ticket.model} (${ticket.deviceType})`,
-          sikayet: ticket.reportedIssue,
-        },
-        relatedEntity: { type: 'service', id: ticket.id, number: ticket.ticketNumber },
+      title = `Servis Kabul Teyit İletisi: ${ticket.ticketNumber}`;
+      message = WhatsAppService.getMessageContent('SERVICE_INTAKE_CONFIRMATION', undefined, {
+        musteri_adi: ticket.customerName,
+        servis_no: ticket.ticketNumber,
+        cihaz_tanimi: `${ticket.brand} ${ticket.model} (${ticket.deviceType})`,
+        sikayet: ticket.reportedIssue,
       });
-      alert(`Servis kabul teyit mesajı ${ticket.customerName} müşterisine WhatsApp ile iletildi.`);
     } else if (type === 'diagnosis') {
-      await WhatsAppService.sendMessage({
-        recipientName: ticket.customerName,
-        recipientPhone: ticket.customerPhone,
-        templateCode: 'SERVICE_DIAGNOSIS_COST_APPROVAL',
-        variables: {
-          musteri_adi: ticket.customerName,
-          servis_no: ticket.ticketNumber,
-          ariza_tespiti: ticket.diagnosticNotes || 'Cihaz bileşenleri arızalı.',
-          toplam_maliyet: formatMoney(ticket.totalCost),
-          onay_linki: approvalUrl,
-        },
-        relatedEntity: { type: 'service', id: ticket.id, number: ticket.ticketNumber },
+      title = `Arıza Tespiti & Fiyat Onay İletisi: ${ticket.ticketNumber}`;
+      message = WhatsAppService.getMessageContent('SERVICE_DIAGNOSIS_COST_APPROVAL', undefined, {
+        musteri_adi: ticket.customerName,
+        servis_no: ticket.ticketNumber,
+        ariza_tespiti: ticket.diagnosticNotes || 'Cihaz bileşenleri arızalı.',
+        toplam_maliyet: formatMoney(ticket.totalCost),
+        onay_linki: approvalUrl,
       });
-      handleStatusChange(ticket.id, 'waiting_approval');
-      alert(`Arıza tespiti ve güvenli onay bağlantısı WhatsApp ile gönderildi.`);
+      onSentAction = () => handleStatusChange(ticket.id, 'waiting_approval');
     } else if (type === 'ready') {
-      await WhatsAppService.sendMessage({
-        recipientName: ticket.customerName,
-        recipientPhone: ticket.customerPhone,
-        templateCode: 'SERVICE_READY_FOR_PICKUP',
-        variables: {
-          musteri_adi: ticket.customerName,
-          servis_no: ticket.ticketNumber,
-          kalan_bakiye: formatMoney(ticket.remainingBalance),
-        },
-        relatedEntity: { type: 'service', id: ticket.id, number: ticket.ticketNumber },
+      title = `Cihaz Teslime Hazır İletisi: ${ticket.ticketNumber}`;
+      message = WhatsAppService.getMessageContent('SERVICE_READY_FOR_PICKUP', undefined, {
+        musteri_adi: ticket.customerName,
+        servis_no: ticket.ticketNumber,
+        kalan_bakiye: formatMoney(ticket.remainingBalance),
       });
-      handleStatusChange(ticket.id, 'ready');
-      alert(`Cihaz teslime hazır bilgilendirmesi WhatsApp ile müşteriye ulaştırıldı.`);
+      onSentAction = () => handleStatusChange(ticket.id, 'ready');
     }
+
+    // Otomatik WhatsApp doğrudan açmayı dene
+    WhatsAppService.openWhatsAppDirect(ticket.customerPhone, message);
+
+    // Aynı zamanda garantili gönderim ve metin kopyalama modalını aç
+    setWhatsAppModalData({
+      isOpen: true,
+      ticket,
+      title,
+      message,
+      onSentAction,
+    });
   };
 
   const handleAddOperation = (ticketId: string) => {
@@ -766,6 +771,26 @@ export const ServiceDeskView: React.FC<ServiceDeskViewProps> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {/* WHATSAPP GÖNDERİM MODALI */}
+      {whatsAppModalData && (
+        <WhatsAppSendModal
+          isOpen={whatsAppModalData.isOpen}
+          title={whatsAppModalData.title}
+          recipientName={whatsAppModalData.ticket.customerName}
+          recipientPhone={whatsAppModalData.ticket.customerPhone}
+          initialMessage={whatsAppModalData.message}
+          relatedEntityType="service"
+          relatedEntityId={whatsAppModalData.ticket.id}
+          relatedEntityNumber={whatsAppModalData.ticket.ticketNumber}
+          onClose={() => setWhatsAppModalData(null)}
+          onSent={() => {
+            if (whatsAppModalData.onSentAction) {
+              whatsAppModalData.onSentAction();
+            }
+          }}
+        />
       )}
     </div>
   );

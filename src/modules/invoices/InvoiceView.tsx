@@ -2,9 +2,11 @@ import React, { useState } from 'react';
 import { Invoice, PaymentRecord, Customer } from '../../types';
 import { storage } from '../../services/storageService';
 import { PDFService } from '../../services/pdfService';
+import { WhatsAppService } from '../../services/whatsappService';
+import { WhatsAppSendModal } from '../../components/common/WhatsAppSendModal';
 import { 
   Plus, Search, Receipt, Printer, DollarSign, CheckCircle2, 
-  Clock, AlertCircle, Calendar, ArrowRight, CreditCard
+  Clock, AlertCircle, Calendar, ArrowRight, CreditCard, MessageSquare
 } from 'lucide-react';
 
 interface InvoiceViewProps {
@@ -26,9 +28,45 @@ export const InvoiceView: React.FC<InvoiceViewProps> = ({
   const [payMethod, setPayMethod] = useState<'Havale / EFT' | 'Kredi Kartı' | 'Nakit'>('Havale / EFT');
   const [payStage, setPayStage] = useState<'deposit' | 'progress' | 'completion'>('progress');
   const [payNotes, setPayNotes] = useState('');
+  const [whatsAppModalData, setWhatsAppModalData] = useState<{
+    isOpen: boolean;
+    invoice: Invoice;
+    customerPhone: string;
+    message: string;
+  } | null>(null);
 
   const formatMoney = (val: number) => 
     new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY' }).format(val);
+
+  const handleSendWhatsAppReminder = (invoice: Invoice) => {
+    const customer = customers.find(c => c.id === invoice.customerId);
+    const phone = customer?.phone || '+905050375959';
+    const settings = storage.getSettings();
+
+    const message = `Sayın *${invoice.customerName}*,
+
+*3AS TEKNOLOJİ* bünyesinde düzenlenen *${invoice.invoiceNumber}* numaralı faturanıza ait bakiye bilgisi aşağıdadır:
+
+💰 *Genel Toplam:* ${formatMoney(invoice.grandTotal)}
+💳 *Kalan Ödenecek:* ${formatMoney(invoice.remainingAmount)}
+📅 *Son Ödeme / Vade:* ${invoice.dueDate}
+🏦 *Banka:* ${settings.bankName || 'Garanti BBVA'}
+🏛️ *IBAN:* ${settings.iban || 'TR33 0006 2000 0001 2345 6789 01'}
+
+Ödemenizi gerçekleştirdiğinizde dekontunuzu bu hat üzerinden iletebilirsiniz.
+Teşekkür eder, iyi çalışmalar dileriz.
+*3AS TEKNOLOJİ ve BİLİSİM HİZMETLERİ*
+📞 +905050375959`;
+
+    WhatsAppService.openWhatsAppDirect(phone, message);
+
+    setWhatsAppModalData({
+      isOpen: true,
+      invoice,
+      customerPhone: phone,
+      message,
+    });
+  };
 
   const filtered = invoices.filter(inv => {
     const matchSearch = 
@@ -199,15 +237,25 @@ export const InvoiceView: React.FC<InvoiceViewProps> = ({
                   </button>
 
                   {selectedInvoice.remainingAmount > 0 && (
-                    <button
-                      onClick={() => {
-                        setPayAmount(selectedInvoice.remainingAmount);
-                        setShowPaymentModal(true);
-                      }}
-                      className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 shadow-xs"
-                    >
-                      <DollarSign size={14} /> Tahsilat Gir
-                    </button>
+                    <>
+                      <button
+                        onClick={() => handleSendWhatsAppReminder(selectedInvoice)}
+                        className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 shadow-xs"
+                        title="Müşteriye WhatsApp ile Bakiye ve IBAN Bilgisi Gönder"
+                      >
+                        <MessageSquare size={14} /> WhatsApp ile Hatırlat
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          setPayAmount(selectedInvoice.remainingAmount);
+                          setShowPaymentModal(true);
+                        }}
+                        className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 shadow-xs"
+                      >
+                        <DollarSign size={14} /> Tahsilat Gir
+                      </button>
+                    </>
                   )}
                 </div>
               </div>
@@ -383,6 +431,21 @@ export const InvoiceView: React.FC<InvoiceViewProps> = ({
             </form>
           </div>
         </div>
+      )}
+
+      {/* WHATSAPP GÖNDERİM MODALI */}
+      {whatsAppModalData && (
+        <WhatsAppSendModal
+          isOpen={whatsAppModalData.isOpen}
+          title={`Fatura & Bakiye Hatırlatması: ${whatsAppModalData.invoice.invoiceNumber}`}
+          recipientName={whatsAppModalData.invoice.customerName}
+          recipientPhone={whatsAppModalData.customerPhone}
+          initialMessage={whatsAppModalData.message}
+          relatedEntityType="invoice"
+          relatedEntityId={whatsAppModalData.invoice.id}
+          relatedEntityNumber={whatsAppModalData.invoice.invoiceNumber}
+          onClose={() => setWhatsAppModalData(null)}
+        />
       )}
     </div>
   );

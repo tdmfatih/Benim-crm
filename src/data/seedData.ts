@@ -874,19 +874,25 @@ Sayın Yönetici, sisteminize yeni bir müşteri talebi ulaştı:
   {
     id: 'tmpl-1',
     code: 'OFFER_NOTIFICATION',
-    title: 'Yeni Teklif Bildirimi',
+    title: 'Yeni Teklif Bildirimi & Onay Talebi',
     content: `Sayın *{musteri_adi}*,
 
-*3AS TEKNOLOJİ* olarak talebinize istinaden hazırladığımız *{teklif_no}* numaralı kurumsal teklifimiz bilgilerinize sunulmuştur.
+*3AS TEKNOLOJİ* olarak talebinize istinaden hazırladığımız *{teklif_no}* numaralı kurumsal fiyat teklifimiz ekteki PDF / Görsel belgede bilginize sunulmuştur.
 
-📋 *Kategori:* {kategori}
+📋 *Hizmet Grubu:* {kategori}
 💰 *Genel Toplam:* {toplam_tutar}
-⏳ *Geçerlilik Tarihi:* {gecerlilik_tarihi}
+⏳ *Son Geçerlilik:* {gecerlilik_tarihi}
 
-Teklifinizi incelemek, PDF olarak indirmek veya online olarak onaylamak için aşağıdaki güvenli bağlantıyı kullanabilirsiniz:
-🔗 {onay_linki}
+✅ *TEKLİFİ ONAYLAMAK İÇİN TIKLAYINIZ (ONAY BUTONU):*
+👉 {onay_linki}
 
-Sorularınız için bu hat üzerinden bizimle doğrudan iletişime geçebilirsiniz.`,
+📄 *DİJİTAL TEKLİF & PDF DOSYASI:*
+🔗 {onay_linki}?view=pdf
+
+*(Teklifimizin resmi PDF ve görsel dökümü bu mesaja eklenmiştir. Dilerseniz bu mesaja "ONAYLIYORUM" yazarak da doğrudan onay verebilirsiniz.)*
+
+*3AS TEKNOLOJİ ve BİLİŞİM HİZMETLERİ*
+📞 +905050375959`,
     variables: ['musteri_adi', 'teklif_no', 'kategori', 'toplam_tutar', 'gecerlilik_tarihi', 'onay_linki'],
   },
   {

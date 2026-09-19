@@ -3,6 +3,36 @@ import { storage } from './storageService';
 
 export class WhatsAppService {
   /**
+   * Telefon numarasını uluslararası WhatsApp formatına (905xxxxxxxxx) dönüştürür
+   */
+  static normalizePhone(phone: string): string {
+    if (!phone) return '';
+    const digits = phone.replace(/\D/g, '');
+    if (digits.startsWith('90')) return digits;
+    if (digits.startsWith('0')) return '90' + digits.substring(1);
+    if (digits.length === 10 && digits.startsWith('5')) return '90' + digits;
+    return digits;
+  }
+
+  /**
+   * Doğrudan mobil veya masaüstü WhatsApp wa.me linki üretir
+   */
+  static buildWhatsAppUrl(phone: string, message: string): string {
+    const normalized = this.normalizePhone(phone);
+    const encoded = encodeURIComponent(message || '');
+    return `https://wa.me/${normalized}?text=${encoded}`;
+  }
+
+  /**
+   * Tarayıcı üzerinden WhatsApp Web linki üretir
+   */
+  static buildWebWhatsAppUrl(phone: string, message: string): string {
+    const normalized = this.normalizePhone(phone);
+    const encoded = encodeURIComponent(message || '');
+    return `https://web.whatsapp.com/send?phone=${normalized}&text=${encoded}`;
+  }
+
+  /**
    * Şablon metnini değişkenlerle doldurur
    */
   static renderTemplate(templateContent: string, variables: Record<string, string>): string {
@@ -12,6 +42,99 @@ export class WhatsAppService {
       text = text.replace(regex, value || '');
     }
     return text;
+  }
+
+  /**
+   * Şablon koduna veya varsayılanlara göre mesaj içeriği üretir
+   */
+  static getMessageContent(templateCode?: string, customContent?: string, variables: Record<string, string> = {}): string {
+    if (customContent) {
+      return this.renderTemplate(customContent, variables);
+    }
+
+    if (templateCode) {
+      const templates = storage.getCommunicationTemplates();
+      const tmpl = templates.find(t => t.code === templateCode);
+      if (tmpl) {
+        return this.renderTemplate(tmpl.content, variables);
+      }
+
+      // Standart yedek şablonlar
+      if (templateCode === 'OFFER_APPROVAL_REQUEST' || templateCode === 'OFFER_NOTIFICATION') {
+        const approvalLink = variables.onay_linki || '';
+        const pdfLink = approvalLink ? `${approvalLink}?view=pdf` : '';
+        return `Sayın *${variables.musteri_adi || 'Müşterimiz'}*,
+
+*3AS TEKNOLOJİ* olarak talebinize istinaden hazırladığımız *${variables.teklif_no || ''}* numaralı kurumsal fiyat teklifimiz ekteki PDF / Görsel döküm olarak bilgilerinize sunulmuştur.
+
+📋 *Hizmet Grubu:* ${variables.kategori || 'Güvenlik & Bilişim'}
+💰 *Genel Toplam:* ${variables.toplam_tutar || ''}
+${variables.gecerlilik_tarihi ? `⏳ *Son Geçerlilik:* ${variables.gecerlilik_tarihi}\n` : ''}
+✅ *TEKLİFİ ONAYLAMAK İÇİN TIKLAYINIZ (ONAY BUTONU):*
+👉 ${approvalLink}
+
+📄 *DİJİTAL TEKLİF & PDF BELGESİ:*
+🔗 ${pdfLink || approvalLink}
+
+*(Teklifinizin resmi PDF ve görsel dökümü bu mesaja eklenmiştir. Dilerseniz bu mesaja "ONAYLIYORUM" yazarak da teklife doğrudan onay verebilirsiniz.)*
+
+*3AS TEKNOLOJİ ve BİLİŞİM HİZMETLERİ*
+📍 Tekirdağ / Süleymanpaşa | 📞 +905050375959`;
+      }
+
+      if (templateCode === 'SERVICE_INTAKE_CONFIRMATION') {
+        return `Sayın *${variables.musteri_adi || 'Müşterimiz'}*,
+
+*${variables.servis_no || ''}* kayıt numaralı *${variables.cihaz_tanimi || 'cihazınız'}* 3AS Teknoloji teknik servis masamıza teslim alınmıştır.
+
+📝 *Müşteri Şikayeti:* ${variables.sikayet || 'Belirtilmedi'}
+ℹ️ Detaylı arıza tespiti tamamlandığında onayınız için tarafınıza bilgi iletilecektir.
+
+*3AS TEKNOLOJİ ve BİLİSİM HİZMETLERİ*
+📍 Tekirdağ Süleymanpaşa | 📞 +905050375959`;
+      }
+
+      if (templateCode === 'SERVICE_DIAGNOSIS_COST_APPROVAL' || templateCode === 'SERVICE_APPROVAL_REQUEST') {
+        return `Sayın *${variables.musteri_adi || 'Müşterimiz'}*,
+
+*${variables.servis_no || ''}* takip numaralı cihazınızın arıza tespit ve parça analizi tamamlanmıştır.
+
+🔧 *Arıza Tespiti:* ${variables.ariza_tespiti || variables.teshis || 'Donanım/Yazılım arızası'}
+💵 *Tahmini Onarım Tutarı:* ${variables.toplam_maliyet || variables.toplam_tutar || ''}
+
+İşleme başlayabilmemiz için aşağıdaki güvenli bağlantıdan onarım onayınızı iletebilirsiniz:
+🔗 ${variables.onay_linki || ''}
+
+*3AS TEKNOLOJİ Teknik Servis Masası*
+📞 +905050375959`;
+      }
+
+      if (templateCode === 'SERVICE_READY_FOR_PICKUP' || templateCode === 'SERVICE_READY_NOTICE') {
+        return `Sayın *${variables.musteri_adi || 'Müşterimiz'}*,
+
+*${variables.servis_no || ''}* numaralı cihazınızın onarım ve testleri başarıyla tamamlanmış olup *TESLİME HAZIRDIR*.
+
+💳 *Kalan Ödenecek Tutar:* ${variables.kalan_bakiye || variables.kalan_tutar || '0,00 TL'}
+📍 *Teslim Noktası:* Tekirdağ Süleymanpaşa Atölyemiz
+
+Cihazınızı dilediğiniz zaman teslim alabilirsiniz.
+*3AS TEKNOLOJİ ve BİLİSİM HİZMETLERİ*
+📞 +905050375959`;
+      }
+
+      if (templateCode === 'LEAD_CUSTOMER_GREETING') {
+        return `Sayın *${variables.musteri_adi || 'Müşterimiz'}*,
+
+*3AS TEKNOLOJİ* ile iletişime geçtiğiniz için teşekkür ederiz. *${variables.hizmet_kategorisi || 'Güvenlik & Bilişim'}* konusundaki talebiniz uzman ekibimize ulaşmıştır.
+
+İhtiyaçlarınızı en doğru şekilde projelendirmek ve teklifimizi hazırlamak üzere görüşmek isteriz. Detayları görüşmek için ne zaman müsait olursunuz?
+
+*3AS TEKNOLOJİ ve BİLİSİM HİZMETLERİ*
+📞 +905050375959`;
+      }
+    }
+
+    return '';
   }
 
   /**
@@ -29,15 +152,7 @@ export class WhatsAppService {
       number: string;
     };
   }): Promise<CommunicationLog> {
-    let content = params.customContent || '';
-
-    if (params.templateCode) {
-      const templates = storage.getCommunicationTemplates();
-      const tmpl = templates.find(t => t.code === params.templateCode);
-      if (tmpl) {
-        content = this.renderTemplate(tmpl.content, params.variables || {});
-      }
-    }
+    const content = this.getMessageContent(params.templateCode, params.customContent, params.variables || {});
 
     const log = storage.addCommunicationLog({
       channel: 'whatsapp',
@@ -63,6 +178,19 @@ export class WhatsAppService {
     }, 2500);
 
     return log;
+  }
+
+  /**
+   * Doğrudan tarayıcıda veya mobilde WhatsApp uygulamasını açar (wa.me)
+   */
+  static openWhatsAppDirect(phone: string, message: string): string {
+    const url = this.buildWhatsAppUrl(phone, message);
+    try {
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } catch (e) {
+      console.warn('Direct popup might have been blocked:', e);
+    }
+    return url;
   }
 
   /**
@@ -136,19 +264,5 @@ Sayın Yönetici, web siteniz / CRM üzerinden yeni bir müşteri talebi ulaşt�
     });
 
     return log;
-  }
-
-  /**
-   * Doğrudan tarayıcıda veya mobilde WhatsApp uygulamasını açar (wa.me)
-   */
-  static openWhatsAppDirect(phone: string, message: string): void {
-    const cleanPhone = phone.replace(/\D/g, '');
-    const normalizedPhone = cleanPhone.startsWith('0') 
-      ? '90' + cleanPhone.substring(1) 
-      : cleanPhone.startsWith('90') ? cleanPhone : '90' + cleanPhone;
-    
-    const encoded = encodeURIComponent(message);
-    const url = `https://wa.me/${normalizedPhone}?text=${encoded}`;
-    window.open(url, '_blank', 'noopener,noreferrer');
   }
 }

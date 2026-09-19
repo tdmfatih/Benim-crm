@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { storage } from '../services/storageService';
 import { PDFService } from '../services/pdfService';
 import { BrandLogo } from '../components/layout/BrandLogo';
+import { ApiService } from '../services/apiService';
 import { ServiceTicket } from '../types';
 import { CheckCircle2, XCircle, Printer, ShieldCheck, Wrench, AlertCircle, Laptop } from 'lucide-react';
 
@@ -13,12 +14,14 @@ interface PublicServiceApprovalProps {
 
 export const PublicServiceApproval: React.FC<PublicServiceApprovalProps> = ({ token, onBackToApp, onApproved }) => {
   const [ticket, setTicket] = useState<ServiceTicket | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
   const [actionDone, setActionDone] = useState<'approved' | 'rejected' | null>(null);
   const [approverName, setApproverName] = useState('');
   const [notes, setNotes] = useState('');
 
   useEffect(() => {
-    const found = storage.getServiceTicketByApprovalToken(token);
+    const cleanToken = token.split('?')[0];
+    const found = storage.getServiceTicketByApprovalToken(cleanToken);
     if (found) {
       setTicket(found);
       if (found.status === 'approved' || found.customerApproval?.isApproved) {
@@ -26,6 +29,22 @@ export const PublicServiceApproval: React.FC<PublicServiceApprovalProps> = ({ to
       } else if (found.status === 'cancelled') {
         setActionDone('rejected');
       }
+      setIsLoading(false);
+    } else {
+      // Backend fetch
+      ApiService.getPublicServiceApproval(cleanToken)
+        .then((data) => {
+          if (data && data.id) {
+            setTicket(data);
+            if (data.status === 'approved' || data.customerApproval?.isApproved) {
+              setActionDone('approved');
+            } else if (data.status === 'cancelled') {
+              setActionDone('rejected');
+            }
+          }
+        })
+        .catch((err) => console.warn('Public service approval fetch warning:', err))
+        .finally(() => setIsLoading(false));
     }
   }, [token]);
 
@@ -62,70 +81,86 @@ export const PublicServiceApproval: React.FC<PublicServiceApprovalProps> = ({ to
       return;
     }
 
+    const cleanToken = token.split('?')[0];
+
+    // Try backend API first
+    ApiService.approvePublicService(cleanToken, approverName, notes)
+      .catch((err) => console.warn('Backend service approval error, saving locally:', err));
+
     const tickets = storage.getServiceTickets();
     const idx = tickets.findIndex(t => t.id === ticket.id);
-    if (idx === -1) return;
+    if (idx !== -1) {
+      const updated: ServiceTicket = {
+        ...tickets[idx],
+        status: 'approved',
+        customerApproval: {
+          isApproved: true,
+          approvedAt: new Date().toISOString(),
+          approverName,
+          notes,
+          clientIp: '88.245.19.102 (Doğrulandı)',
+        },
+      };
+      // Mark operations as approved
+      updated.operations = updated.operations.map(op => ({ ...op, isApprovedByCustomer: true }));
 
-    const updated: ServiceTicket = {
-      ...tickets[idx],
-      status: 'approved',
-      customerApproval: {
-        isApproved: true,
-        approvedAt: new Date().toISOString(),
-        approverName,
-        notes,
-        clientIp: '88.245.19.102 (Doğrulandı)',
-      },
-    };
-    // Mark operations as approved
-    updated.operations = updated.operations.map(op => ({ ...op, isApprovedByCustomer: true }));
+      tickets[idx] = updated;
+      storage.saveServiceTickets(tickets);
 
-    tickets[idx] = updated;
-    storage.saveServiceTickets(tickets);
+      storage.logAudit(
+        'SERVICE_APPROVED_ONLINE',
+        'service',
+        ticket.id,
+        ticket.ticketNumber,
+        { status: ticket.status },
+        { status: 'approved', approver: approverName, total: ticket.totalCost }
+      );
 
-    storage.logAudit(
-      'SERVICE_APPROVED_ONLINE',
-      'service',
-      ticket.id,
-      ticket.ticketNumber,
-      { status: ticket.status },
-      { status: 'approved', approver: approverName, total: ticket.totalCost }
-    );
-
-    setTicket(updated);
-    setActionDone('approved');
-    if (onApproved) onApproved(updated);
+      setTicket(updated);
+      setActionDone('approved');
+      if (onApproved) onApproved(updated);
+    } else {
+      setActionDone('approved');
+    }
   };
 
   const handleReject = () => {
+    const cleanToken = token.split('?')[0];
+
+    // Try backend API first
+    ApiService.rejectPublicService(cleanToken, notes)
+      .catch((err) => console.warn('Backend service rejection error, saving locally:', err));
+
     const tickets = storage.getServiceTickets();
     const idx = tickets.findIndex(t => t.id === ticket.id);
-    if (idx === -1) return;
+    if (idx !== -1) {
+      const updated: ServiceTicket = {
+        ...tickets[idx],
+        status: 'cancelled',
+        customerApproval: {
+          isApproved: false,
+          approvedAt: new Date().toISOString(),
+          approverName: approverName || 'Müşteri',
+          notes: notes || 'Onarım maliyeti onaylanmadı.',
+        },
+      };
+      tickets[idx] = updated;
+      storage.saveServiceTickets(tickets);
 
-    const updated: ServiceTicket = {
-      ...tickets[idx],
-      status: 'cancelled',
-      customerApproval: {
-        isApproved: false,
-        approvedAt: new Date().toISOString(),
-        approverName: approverName || 'Müşteri',
-        notes: notes || 'Onarım maliyeti onaylanmadı.',
-      },
-    };
-    tickets[idx] = updated;
-    storage.saveServiceTickets(tickets);
+      storage.logAudit(
+        'SERVICE_REJECTED_ONLINE',
+        'service',
+        ticket.id,
+        ticket.ticketNumber,
+        { status: ticket.status },
+        { status: 'cancelled', notes }
+      );
 
-    storage.logAudit(
-      'SERVICE_REJECTED_ONLINE',
-      'service',
-      ticket.id,
-      ticket.ticketNumber,
-      { status: ticket.status },
-      { status: 'cancelled', notes }
-    );
-
-    setTicket(updated);
-    setActionDone('rejected');
+      setTicket(updated);
+      setActionDone('rejected');
+    } else {
+      setActionDone('rejected');
+    }
   };
 
   return (

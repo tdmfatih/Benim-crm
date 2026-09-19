@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { storage } from '../services/storageService';
 import { PDFService } from '../services/pdfService';
 import { AutomationEngine } from '../services/automationEngine';
+import { ApiService } from '../services/apiService';
 import { BrandLogo } from '../components/layout/BrandLogo';
 import { Installation } from '../types';
 import { CheckCircle2, ShieldCheck, Printer, CheckSquare, Package, AlertCircle } from 'lucide-react';
@@ -19,12 +20,25 @@ export const PublicDeliveryConfirm: React.FC<PublicDeliveryConfirmProps> = ({ to
   const [feedback, setFeedback] = useState('');
 
   useEffect(() => {
-    const found = storage.getInstallationByDeliveryToken(token);
+    const cleanToken = token.split('?')[0];
+    const found = storage.getInstallationByDeliveryToken(cleanToken);
     if (found) {
       setInst(found);
       if (found.customerDeliveryApproval?.isApproved) {
         setActionDone(true);
       }
+    } else {
+      // Backend fetch
+      ApiService.getPublicDelivery(cleanToken)
+        .then((data) => {
+          if (data && data.id) {
+            setInst(data);
+            if (data.customerDeliveryApproval?.isApproved) {
+              setActionDone(true);
+            }
+          }
+        })
+        .catch((err) => console.warn('Public delivery fetch warning:', err));
     }
   }, [token]);
 
@@ -58,45 +72,56 @@ export const PublicDeliveryConfirm: React.FC<PublicDeliveryConfirmProps> = ({ to
       return;
     }
 
+    const cleanToken = token.split('?')[0];
+
+    // Backend sync
+    ApiService.confirmPublicDelivery(cleanToken, {
+      signedBy: approverName,
+      satisfactionScore: 5,
+      notes: feedback,
+    }).catch((err) => console.warn('Backend delivery confirm error, saving locally:', err));
+
     const installations = storage.getInstallations();
     const idx = installations.findIndex(i => i.id === inst.id);
-    if (idx === -1) return;
+    if (idx !== -1) {
+      const updated: Installation = {
+        ...installations[idx],
+        status: 'completed',
+        customerDeliveryApproval: {
+          isApproved: true,
+          approvedAt: new Date().toISOString(),
+          approverName,
+          notes: feedback,
+          clientIp: '88.245.19.102 (Doğrulandı)',
+        },
+      };
+      installations[idx] = updated;
+      storage.saveInstallations(installations);
 
-    const updated: Installation = {
-      ...installations[idx],
-      status: 'completed',
-      customerDeliveryApproval: {
-        isApproved: true,
-        approvedAt: new Date().toISOString(),
-        approverName,
-        notes: feedback,
-        clientIp: '88.245.19.102 (Doğrulandı)',
-      },
-    };
-    installations[idx] = updated;
-    storage.saveInstallations(installations);
+      storage.logAudit(
+        'DELIVERY_CONFIRMED_ONLINE',
+        'installation',
+        inst.id,
+        inst.installationNumber,
+        null,
+        { approver: approverName, feedback }
+      );
 
-    storage.logAudit(
-      'DELIVERY_CONFIRMED_ONLINE',
-      'installation',
-      inst.id,
-      inst.installationNumber,
-      null,
-      { approver: approverName, feedback }
-    );
+      // Otomasyon: Google Review daveti gönder
+      AutomationEngine.triggerEvent('DELIVERY_CONFIRMED', {
+        customerName: inst.customerName,
+        customerPhone: inst.customerPhone,
+        entityId: inst.id,
+        entityNumber: inst.installationNumber,
+        entityType: 'installation',
+      });
 
-    // Otomasyon: Google Review daveti gönder
-    AutomationEngine.triggerEvent('DELIVERY_CONFIRMED', {
-      customerName: inst.customerName,
-      customerPhone: inst.customerPhone,
-      entityId: inst.id,
-      entityNumber: inst.installationNumber,
-      entityType: 'installation',
-    });
-
-    setInst(updated);
-    setActionDone(true);
-    if (onApproved) onApproved(updated);
+      setInst(updated);
+      setActionDone(true);
+      if (onApproved) onApproved(updated);
+    } else {
+      setActionDone(true);
+    }
   };
 
   return (

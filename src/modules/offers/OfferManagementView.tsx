@@ -3,8 +3,10 @@ import { Offer, OfferItem, Customer, Product, User } from '../../types';
 import { storage } from '../../services/storageService';
 import { RBACService } from '../../services/rbacService';
 import { PDFService } from '../../services/pdfService';
+import { OfferImageService } from '../../services/offerImageService';
 import { WhatsAppService } from '../../services/whatsappService';
 import { AutomationEngine } from '../../services/automationEngine';
+import { WhatsAppSendModal } from '../../components/common/WhatsAppSendModal';
 import { 
   Plus, Search, FileText, Printer, MessageSquare, Copy, 
   ExternalLink, CheckCircle2, XCircle, Clock, Eye, Trash2, 
@@ -36,6 +38,11 @@ export const OfferManagementView: React.FC<OfferManagementViewProps> = ({
   const [showNewModal, setShowNewModal] = useState(false);
   const [copiedToken, setCopiedToken] = useState<string | null>(null);
   const [previewImage, setPreviewImage] = useState<{ url: string; title: string } | null>(null);
+  const [whatsAppModalData, setWhatsAppModalData] = useState<{
+    isOpen: boolean;
+    offer: Offer;
+    message: string;
+  } | null>(null);
 
   const companySettings = storage.getSettings();
   const canViewCost = RBACService.canViewCost();
@@ -59,27 +66,29 @@ export const OfferManagementView: React.FC<OfferManagementViewProps> = ({
     setTimeout(() => setCopiedToken(null), 2000);
   };
 
-  const handleSendWhatsApp = async (offer: Offer) => {
+  const handleSendWhatsApp = (offer: Offer) => {
     const fullUrl = `${window.location.origin}/offer/${offer.secureToken}`;
-    await WhatsAppService.sendMessage({
-      recipientName: offer.customerName,
-      recipientPhone: offer.customerPhone,
-      templateCode: 'OFFER_APPROVAL_REQUEST',
-      variables: {
-        musteri_adi: offer.customerName,
-        teklif_no: offer.offerNumber,
-        kategori: offer.serviceCategory,
-        toplam_tutar: formatMoney(offer.grandTotal),
-        onay_linki: fullUrl,
-      },
-      relatedEntity: {
-        type: 'offer',
-        id: offer.id,
-        number: offer.offerNumber,
-      },
+    const message = WhatsAppService.getMessageContent('OFFER_APPROVAL_REQUEST', undefined, {
+      musteri_adi: offer.customerName,
+      teklif_no: offer.offerNumber,
+      kategori: offer.serviceCategory,
+      toplam_tutar: formatMoney(offer.grandTotal),
+      gecerlilik_tarihi: new Date(offer.validUntil).toLocaleDateString('tr-TR'),
+      onay_linki: fullUrl,
     });
 
-    // Mark as sent
+    // Otomatik olarak WhatsApp'ta açmayı dene
+    WhatsAppService.openWhatsAppDirect(offer.customerPhone, message);
+
+    // Aynı zamanda garantili gönderim ve metin kopyalama modalını aç
+    setWhatsAppModalData({
+      isOpen: true,
+      offer,
+      message,
+    });
+  };
+
+  const handleOfferWhatsAppSent = (offer: Offer) => {
     const updated = offers.map(o => {
       if (o.id === offer.id && o.status === 'draft') {
         return { ...o, status: 'sent' as const, sentAt: new Date().toISOString() };
@@ -90,7 +99,6 @@ export const OfferManagementView: React.FC<OfferManagementViewProps> = ({
     if (selectedOffer?.id === offer.id) {
       setSelectedOffer({ ...selectedOffer, status: 'sent', sentAt: new Date().toISOString() });
     }
-    alert(`Teklif ve güvenli onay bağlantısı ${offer.customerName} müşterisine WhatsApp ile başarıyla iletildi.`);
   };
 
   const handleReviseOffer = (offer: Offer) => {
@@ -195,11 +203,35 @@ export const OfferManagementView: React.FC<OfferManagementViewProps> = ({
                   <div className="text-xs font-bold text-slate-900">{o.customerName}</div>
                   <div className="text-[11px] text-slate-500 mt-0.5">{o.serviceCategory}</div>
 
-                  <div className="mt-2 flex items-center justify-between text-xs">
-                    <span className="font-extrabold text-slate-900">{formatMoney(o.grandTotal)}</span>
-                    <span className="text-[10px] text-slate-400">
-                      {new Date(o.createdAt).toLocaleDateString('tr-TR')}
-                    </span>
+                  <div className="mt-2.5 pt-2 border-t border-slate-100 flex items-center justify-between">
+                    <span className="font-extrabold text-slate-900 text-xs">{formatMoney(o.grandTotal)}</span>
+
+                    <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        type="button"
+                        onClick={() => PDFService.printOffer(o)}
+                        className="p-1 rounded text-slate-400 hover:text-red-600 hover:bg-red-50 transition"
+                        title="PDF İndir / Yazdır"
+                      >
+                        <Printer size={13} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => OfferImageService.downloadOfferImage(o)}
+                        className="p-1 rounded text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 transition"
+                        title="Teklif Görseli İndir (PNG)"
+                      >
+                        <ImageIcon size={13} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleSendWhatsApp(o)}
+                        className="px-2 py-0.5 rounded-md bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-[10px] font-bold flex items-center gap-1 transition"
+                        title="WhatsApp ile PDF/Görsel ve Onay Butonu Gönder"
+                      >
+                        <MessageSquare size={11} /> WhatsApp
+                      </button>
+                    </div>
                   </div>
                 </div>
               );
@@ -259,17 +291,25 @@ export const OfferManagementView: React.FC<OfferManagementViewProps> = ({
                   <button
                     onClick={() => PDFService.printOffer(selectedOffer)}
                     className="px-3 py-1.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-bold rounded-xl flex items-center gap-1.5 shadow-xs"
-                    title="Resmi A4 PDF Yazdır"
+                    title="Resmi A4 PDF İndir veya Yazdır"
                   >
-                    <Printer size={14} /> PDF Yazdır
+                    <Printer size={14} className="text-red-500" /> PDF İndir / Yazdır
+                  </button>
+
+                  <button
+                    onClick={() => OfferImageService.downloadOfferImage(selectedOffer)}
+                    className="px-3 py-1.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-bold rounded-xl flex items-center gap-1.5 shadow-xs"
+                    title="Teklif Özetini PNG Görsel Olarak İndir"
+                  >
+                    <ImageIcon size={14} className="text-emerald-600" /> Görsel İndir (PNG)
                   </button>
 
                   <button
                     onClick={() => handleSendWhatsApp(selectedOffer)}
-                    className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 shadow-xs"
-                    title="Müşteriye WhatsApp ile Onay Linki Gönder"
+                    className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 shadow-xs transition active:scale-[0.98]"
+                    title="Müşteriye WhatsApp üzerinden PDF/Görsel ve Onay Butonunu Gönder"
                   >
-                    <MessageSquare size={14} /> WhatsApp ile Gönder
+                    <MessageSquare size={14} /> WhatsApp ile Onaya Gönder
                   </button>
 
                   <button
@@ -512,6 +552,23 @@ export const OfferManagementView: React.FC<OfferManagementViewProps> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {/* WHATSAPP GÖNDERİM MODALI */}
+      {whatsAppModalData && (
+        <WhatsAppSendModal
+          isOpen={whatsAppModalData.isOpen}
+          title={`Teklif Onay Bağlantısı İletimi: ${whatsAppModalData.offer.offerNumber}`}
+          recipientName={whatsAppModalData.offer.customerName}
+          recipientPhone={whatsAppModalData.offer.customerPhone}
+          initialMessage={whatsAppModalData.message}
+          relatedEntityType="offer"
+          relatedEntityId={whatsAppModalData.offer.id}
+          relatedEntityNumber={whatsAppModalData.offer.offerNumber}
+          offer={whatsAppModalData.offer}
+          onClose={() => setWhatsAppModalData(null)}
+          onSent={() => handleOfferWhatsAppSent(whatsAppModalData.offer)}
+        />
       )}
     </div>
   );

@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { Lead, LeadStage, LeadSource, User, Customer, Offer } from '../../types';
 import { storage } from '../../services/storageService';
+import { WhatsAppService } from '../../services/whatsappService';
+import { WhatsAppSendModal } from '../../components/common/WhatsAppSendModal';
 import { 
   Plus, Search, Filter, Phone, Mail, Calendar, 
   ArrowRight, UserCheck, FileText, CheckCircle2, 
@@ -27,6 +29,11 @@ export const LeadManagementView: React.FC<LeadManagementViewProps> = ({
   const [sourceFilter, setSourceFilter] = useState<string>('all');
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [showNewModal, setShowNewModal] = useState(false);
+  const [whatsAppModalData, setWhatsAppModalData] = useState<{
+    isOpen: boolean;
+    lead: Lead;
+    message: string;
+  } | null>(null);
 
   // New Lead Form State
   const [formData, setFormData] = useState({
@@ -98,6 +105,28 @@ export const LeadManagementView: React.FC<LeadManagementViewProps> = ({
     if (selectedLead && selectedLead.id === leadId) {
       setSelectedLead(updated.find(l => l.id === leadId) || null);
     }
+  };
+
+  const handleOpenWhatsAppForLead = (lead: Lead) => {
+    const message = WhatsAppService.getMessageContent('LEAD_CUSTOMER_GREETING', undefined, {
+      musteri_adi: lead.fullName,
+      hizmet_kategorisi: lead.interestedServiceCategory,
+    });
+
+    WhatsAppService.openWhatsAppDirect(lead.phone, message);
+
+    setWhatsAppModalData({
+      isOpen: true,
+      lead,
+      message,
+    });
+  };
+
+  const handleLeadWhatsAppSent = (lead: Lead) => {
+    if (lead.stage === 'new') {
+      handleStageChange(lead.id, 'contacted');
+    }
+    handleAddActivity(lead.id, 'Müşteriyle WhatsApp üzerinden doğrudan iletişim sağlandı.');
   };
 
   const handleCreateLead = (e: React.FormEvent) => {
@@ -258,7 +287,20 @@ export const LeadManagementView: React.FC<LeadManagementViewProps> = ({
                       </div>
 
                       <div className="mt-2.5 pt-2 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500">
-                        <span>{lead.assignedUserName || 'Atanmadı'}</span>
+                        <div className="flex items-center gap-1.5">
+                          <span>{lead.assignedUserName || 'Atanmadı'}</span>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleOpenWhatsAppForLead(lead);
+                            }}
+                            className="p-1 text-emerald-600 hover:bg-emerald-50 rounded transition"
+                            title="Müşteriye WhatsApp Mesajı Gönder"
+                          >
+                            <MessageSquare size={13} />
+                          </button>
+                        </div>
                         {lead.budgetEstimate ? (
                           <span className="font-bold text-slate-900">
                             {new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY', maximumFractionDigits: 0 }).format(lead.budgetEstimate)}
@@ -327,12 +369,23 @@ export const LeadManagementView: React.FC<LeadManagementViewProps> = ({
                     {lead.assignedUserName || '-'}
                   </td>
                   <td className="py-3.5 px-4 text-right">
-                    <button
-                      onClick={() => setSelectedLead(lead)}
-                      className="px-2.5 py-1 text-xs font-bold text-blue-600 hover:bg-blue-50 rounded-lg"
-                    >
-                      İncele
-                    </button>
+                    <div className="flex items-center justify-end gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => handleOpenWhatsAppForLead(lead)}
+                        className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-lg transition"
+                        title="Müşteriye WhatsApp Mesajı Gönder"
+                      >
+                        <MessageSquare size={15} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedLead(lead)}
+                        className="px-2.5 py-1 text-xs font-bold text-blue-600 hover:bg-blue-50 rounded-lg"
+                      >
+                        İncele
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -364,6 +417,15 @@ export const LeadManagementView: React.FC<LeadManagementViewProps> = ({
             {/* Hızlı Dönüşüm Butonları */}
             <div className="flex flex-wrap gap-2 p-3 bg-blue-50/60 rounded-xl border border-blue-100 mb-5">
               <button
+                type="button"
+                onClick={() => handleOpenWhatsAppForLead(selectedLead)}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 text-white text-xs font-bold rounded-lg shadow-xs hover:bg-emerald-700 transition"
+                title="Müşteriye doğrudan WhatsApp üzerinden mesaj yaz"
+              >
+                <MessageSquare size={14} /> WhatsApp ile Yaz
+              </button>
+              <button
+                type="button"
                 onClick={() => {
                   onConvertToCustomer(selectedLead);
                   setSelectedLead(null);
@@ -373,6 +435,7 @@ export const LeadManagementView: React.FC<LeadManagementViewProps> = ({
                 <UserCheck size={14} /> Müşteriye Dönüştür
               </button>
               <button
+                type="button"
                 onClick={() => {
                   if (onCreateOfferForLead) onCreateOfferForLead(selectedLead);
                   setSelectedLead(null);
@@ -382,6 +445,7 @@ export const LeadManagementView: React.FC<LeadManagementViewProps> = ({
                 <FileText size={14} /> Teklif Oluştur
               </button>
               <button
+                type="button"
                 onClick={() => {
                   handleStageChange(selectedLead.id, 'discovery_scheduled');
                 }}
@@ -594,6 +658,22 @@ export const LeadManagementView: React.FC<LeadManagementViewProps> = ({
             </form>
           </div>
         </div>
+      )}
+
+      {/* WHATSAPP GÖNDERİM MODALI */}
+      {whatsAppModalData && (
+        <WhatsAppSendModal
+          isOpen={whatsAppModalData.isOpen}
+          title={`Müşteri WhatsApp İletişimi: ${whatsAppModalData.lead.fullName}`}
+          recipientName={whatsAppModalData.lead.fullName}
+          recipientPhone={whatsAppModalData.lead.phone}
+          initialMessage={whatsAppModalData.message}
+          relatedEntityType="lead"
+          relatedEntityId={whatsAppModalData.lead.id}
+          relatedEntityNumber={whatsAppModalData.lead.fullName}
+          onClose={() => setWhatsAppModalData(null)}
+          onSent={() => handleLeadWhatsAppSent(whatsAppModalData.lead)}
+        />
       )}
     </div>
   );

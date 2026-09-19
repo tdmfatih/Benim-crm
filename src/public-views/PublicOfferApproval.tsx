@@ -1,10 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { storage } from '../services/storageService';
 import { PDFService } from '../services/pdfService';
+import { OfferImageService } from '../services/offerImageService';
 import { AutomationEngine } from '../services/automationEngine';
 import { BrandLogo } from '../components/layout/BrandLogo';
+import { ApiService } from '../services/apiService';
 import { Offer } from '../types';
-import { CheckCircle2, XCircle, Printer, ShieldCheck, Clock, FileText, AlertTriangle } from 'lucide-react';
+import { 
+  CheckCircle2, XCircle, Printer, ShieldCheck, Clock, 
+  FileText, AlertTriangle, Image as ImageIcon, Download, MessageSquare 
+} from 'lucide-react';
 
 interface PublicOfferApprovalProps {
   token: string;
@@ -14,19 +19,58 @@ interface PublicOfferApprovalProps {
 
 export const PublicOfferApproval: React.FC<PublicOfferApprovalProps> = ({ token, onBackToApp, onApproved }) => {
   const [offer, setOffer] = useState<Offer | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
   const [actionDone, setActionDone] = useState<'approved' | 'rejected' | null>(null);
   const [rejectReason, setRejectReason] = useState('');
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [approverName, setApproverName] = useState('');
+  const [isDownloadingImage, setIsDownloadingImage] = useState(false);
 
   useEffect(() => {
-    const found = storage.getOfferByToken(token);
+    // Token temizleme
+    const cleanToken = token.split('?')[0];
+    const found = storage.getOfferByToken(cleanToken) || storage.getOfferByToken(token);
     if (found) {
       setOffer(found);
       if (found.status === 'approved') setActionDone('approved');
       if (found.status === 'rejected') setActionDone('rejected');
+      setIsLoading(false);
+
+      if (window.location.search.includes('view=pdf')) {
+        setTimeout(() => {
+          PDFService.printOffer(found);
+        }, 600);
+      }
+    } else {
+      // Backend fetch from real PostgreSQL/Express API
+      ApiService.getPublicOffer(cleanToken)
+        .then((data) => {
+          if (data && data.id) {
+            setOffer(data);
+            if (data.status === 'approved') setActionDone('approved');
+            if (data.status === 'rejected') setActionDone('rejected');
+          }
+        })
+        .catch((err) => {
+          console.warn('Public offer fetch error:', err);
+        })
+        .finally(() => {
+          setIsLoading(false);
+        });
     }
   }, [token]);
+
+  const handleDownloadImage = async () => {
+    if (!offer) return;
+    setIsDownloadingImage(true);
+    try {
+      await OfferImageService.downloadOfferImage(offer);
+    } catch (err) {
+      console.error('Download error:', err);
+    } finally {
+      setIsDownloadingImage(false);
+    }
+  };
 
   if (!offer) {
     return (
@@ -61,24 +105,33 @@ export const PublicOfferApproval: React.FC<PublicOfferApprovalProps> = ({ token,
       return;
     }
 
-    const offers = storage.getOffers();
-    const idx = offers.findIndex(o => o.id === offer.id);
-    if (idx === -1) return;
+    const cleanToken = token.split('?')[0];
 
+    // Backend API call
+    ApiService.approvePublicOffer(cleanToken, approverName).catch((e) => {
+      console.warn('Backend approval dispatch info:', e.message);
+    });
+
+    const offers = storage.getOffers();
+    const idx = offers.findIndex(o => o.id === offer.id || o.secureToken === cleanToken);
+    
     const updated: Offer = {
-      ...offers[idx],
+      ...(idx >= 0 ? offers[idx] : offer),
       status: 'approved',
       approvedAt: new Date().toISOString(),
-      clientIp: '88.245.19.102 (Doğrulandı)',
+      clientIp: 'Doğrulandı',
     };
-    offers[idx] = updated;
-    storage.saveOffers(offers);
+
+    if (idx >= 0) {
+      offers[idx] = updated;
+      storage.saveOffers(offers);
+    }
 
     storage.logAudit(
       'OFFER_APPROVED_ONLINE',
       'offer',
       offer.id,
-      `${offer.offerNumber} (v${offer.currentVersion})`,
+      `${offer.offerNumber} (v${offer.currentVersion || 1})`,
       { status: offer.status },
       { status: 'approved', approver: approverName, timestamp: new Date().toISOString() }
     );
@@ -102,19 +155,27 @@ export const PublicOfferApproval: React.FC<PublicOfferApprovalProps> = ({ token,
   };
 
   const handleReject = () => {
+    const cleanToken = token.split('?')[0];
+
+    ApiService.rejectPublicOffer(cleanToken, rejectReason || 'Müşteri reddetti').catch((e) => {
+      console.warn('Backend reject dispatch info:', e.message);
+    });
+
     const offers = storage.getOffers();
-    const idx = offers.findIndex(o => o.id === offer.id);
-    if (idx === -1) return;
+    const idx = offers.findIndex(o => o.id === offer.id || o.secureToken === cleanToken);
 
     const updated: Offer = {
-      ...offers[idx],
+      ...(idx >= 0 ? offers[idx] : offer),
       status: 'rejected',
       rejectedAt: new Date().toISOString(),
       rejectionReason: rejectReason || 'Müşteri tarafından sebep belirtilmedi.',
-      clientIp: '88.245.19.102',
+      clientIp: 'Doğrulandı',
     };
-    offers[idx] = updated;
-    storage.saveOffers(offers);
+
+    if (idx >= 0) {
+      offers[idx] = updated;
+      storage.saveOffers(offers);
+    }
 
     storage.logAudit(
       'OFFER_REJECTED_ONLINE',
@@ -174,16 +235,27 @@ export const PublicOfferApproval: React.FC<PublicOfferApprovalProps> = ({ token,
 
         {/* Kalemler Tablosu */}
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden mb-6">
-          <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+          <div className="px-6 py-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50/50">
             <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
               <FileText size={16} className="text-blue-600" /> Teklif Kalemleri ve İş Kapsamı
             </h3>
-            <button
-              onClick={() => PDFService.printOffer(offer)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-medium rounded-lg shadow-sm transition"
-            >
-              <Printer size={14} /> Resmi PDF İndir / Yazdır
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => PDFService.printOffer(offer)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold rounded-lg shadow-2xs transition"
+                title="A4 Resmi Teklif PDF İndir"
+              >
+                <Printer size={14} className="text-red-500" /> Resmi PDF İndir / Yazdır
+              </button>
+              <button
+                onClick={handleDownloadImage}
+                disabled={isDownloadingImage}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold rounded-lg shadow-2xs transition"
+                title="Teklif Özet Görselini İndir"
+              >
+                <Download size={14} className="text-emerald-600" /> {isDownloadingImage ? 'Hazırlanıyor...' : 'Görsel İndir (PNG)'}
+              </button>
+            </div>
           </div>
 
           <div className="overflow-x-auto">
@@ -259,6 +331,24 @@ export const PublicOfferApproval: React.FC<PublicOfferApprovalProps> = ({ token,
             {offer.approvedAt && (
               <p className="text-xs text-emerald-600 mt-3">Onay Zamanı: {new Date(offer.approvedAt).toLocaleString('tr-TR')}</p>
             )}
+
+            <div className="mt-5 flex flex-wrap items-center justify-center gap-2.5">
+              <a
+                href={`https://wa.me/905050375959?text=${encodeURIComponent(`Merhaba 3AS Teknoloji, ${offer.offerNumber} numaralı fiyat teklifinizi onayladım. Montaj ve iş planı hakkında bilgi almak istiyorum.`)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs transition"
+              >
+                <MessageSquare size={16} /> WhatsApp ile Satış Temsilcisine Bilgi Ver
+              </a>
+
+              <button
+                onClick={() => PDFService.printOffer(offer)}
+                className="inline-flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 font-bold text-xs rounded-xl shadow-xs transition"
+              >
+                <Printer size={14} className="text-red-500" /> Onaylı Teklif PDF'ini İndir
+              </button>
+            </div>
           </div>
         ) : actionDone === 'rejected' ? (
           <div className="bg-red-50 border border-red-200 rounded-2xl p-6 text-center shadow-sm">

@@ -1,6 +1,6 @@
 {
-  "name": "Müşteri, Fatura ve Teknik Servis Yönetimi",
-  "description": "Müşteri takibi, faturalandırma, satış raporlama ve WhatsApp entegreli teknik servis formu yönetim platformu.",
+  "name": "3AS TEKNOLOJİ - Kurumsal ERP, CRM, Teklif & Teknik Servis Yönetimi",
+  "description": "3AS TEKNOLOJİ Müşteri takibi, teklif, saha montaj, faturalandırma ve WhatsApp entegreli teknik servis yönetim platformu.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

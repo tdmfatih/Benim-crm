@@ -48,14 +48,20 @@ export default function App() {
   }>(() => {
     // Check initial URL hash / path
     const path = window.location.pathname;
-    if (path.startsWith('/offer/')) {
-      return { type: 'offer', token: path.replace('/offer/', '') };
+    const hash = window.location.hash;
+    const target = hash.startsWith('#/') ? hash.replace('#', '') : path;
+
+    if (target.startsWith('/offer/')) {
+      const rawToken = target.replace('/offer/', '').split('?')[0].split('#')[0];
+      return { type: 'offer', token: rawToken };
     }
-    if (path.startsWith('/service-approval/')) {
-      return { type: 'service', token: path.replace('/service-approval/', '') };
+    if (target.startsWith('/service-approval/')) {
+      const rawToken = target.replace('/service-approval/', '').split('?')[0].split('#')[0];
+      return { type: 'service', token: rawToken };
     }
-    if (path.startsWith('/delivery-confirm/')) {
-      return { type: 'delivery', token: path.replace('/delivery-confirm/', '') };
+    if (target.startsWith('/delivery-confirm/')) {
+      const rawToken = target.replace('/delivery-confirm/', '').split('?')[0].split('#')[0];
+      return { type: 'delivery', token: rawToken };
     }
     return { type: null, token: null };
   });
