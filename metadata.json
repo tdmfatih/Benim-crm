@@ -1,0 +1,6 @@
+{
+  "name": "Müşteri, Fatura ve Teknik Servis Yönetimi",
+  "description": "Müşteri takibi, faturalandırma, satış raporlama ve WhatsApp entegreli teknik servis formu yönetim platformu.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

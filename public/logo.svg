@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 500" width="100%" height="100%">
+  <!-- Background matching 3AS TEKNOLOJİ Karar10.jpg -->
+  <rect width="500" height="500" fill="#2853a8"/>
+  
+  <!-- Centered Logo Group -->
+  <g transform="translate(70, 195)">
+    <!-- 3AS Emblem in pure white with subtle depth -->
+    <!-- GLYPH 3 -->
+    <path d="M 0 0 L 88 0 L 88 18 L 32 18 L 56 36 L 88 36 L 88 74 L 0 74 L 0 56 L 56 56 L 34 36 L 0 36 Z" 
+          fill="#FFFFFF" />
+
+    <!-- GLYPH A / Q Hybrid with curved left contour and angled slash -->
+    <path d="M 98 74 C 98 42 108 0 148 0 L 178 0 L 192 74 L 168 74 L 164 54 L 126 54 L 122 74 Z 
+             M 132 38 L 158 38 L 150 16 C 144 16 138 22 132 38 Z" 
+          fill="#FFFFFF" />
+
+    <!-- GLYPH S with aerodynamic rounded curves -->
+    <path d="M 206 18 C 206 6 220 0 248 0 L 298 0 L 298 18 L 246 18 C 236 18 232 21 232 26 C 232 32 238 34 252 36 L 274 38 C 294 41 306 48 306 58 C 306 70 292 74 266 74 L 204 74 L 204 56 L 264 56 C 274 56 278 53 278 48 C 278 43 272 41 258 39 L 236 36 C 214 33 206 27 206 18 Z" 
+          fill="#FFFFFF" />
+
+    <!-- Subtitle: T E K N O L O J İ -->
+    <text x="153" y="102" 
+          fill="#FFFFFF" 
+          font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" 
+          font-size="15.5" 
+          font-weight="700" 
+          letter-spacing="0.48em" 
+          text-anchor="middle">
+      TEKNOLOJİ
+    </text>
+  </g>
+</svg>
